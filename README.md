@@ -1,4 +1,4 @@
-# 📊 DSA Question Dataset Generator — v4
+# 📊 DSA Question Dataset Generator
 
 Streamlit web app that converts raw DSA problem descriptions into
 platform-ready `.xlsx` datasets using Claude AI.
