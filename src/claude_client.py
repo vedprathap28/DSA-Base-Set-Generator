@@ -1,17 +1,25 @@
 """
 claude_client.py
-Handles all communication with the Anthropic Claude API.
+Handles all communication with Claude via the OpenRouter gateway.
 """
 
 import os
 import json
 import re
+import unicodedata
 import anthropic
 from dotenv import load_dotenv
 from src.system_prompt import get_system_prompt, get_mode_label
 from src.subtopic_parser import build_subtopic_instructions
 
 load_dotenv()
+
+# ── OpenRouter configuration ──────────────────────────────────────────────────
+BASE_URL = "https://openrouter.ai/api"
+MODEL    = "anthropic/claude-sonnet-4.5"
+
+# Zero-width / non-breaking characters that survive .strip() and break auth.
+_INVISIBLE = dict.fromkeys(map(ord, "\u200b\u200c\u200d\ufeff\u00a0\u2060"), None)
 
 # ── Exact code templates per approach ─────────────────────────────────────────
 # These are shown to Claude as REQUIRED patterns to follow, per question.
@@ -109,13 +117,33 @@ def _build_template_block(subtopics: list) -> str:
     return "\n".join(lines)
 
 
-def get_client() -> anthropic.Anthropic:
-    api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
-    if not api_key or api_key == "your_api_key_here":
+def clean_key(raw: str) -> str:
+    """Normalise a pasted key: strip whitespace, invisible chars and stray quotes."""
+    return (
+        unicodedata.normalize("NFKC", raw or "")
+        .translate(_INVISIBLE)
+        .strip()
+        .strip("'\"")
+    )
+
+
+def get_client(api_key: str = None) -> anthropic.Anthropic:
+    key = clean_key(api_key or os.getenv("OPENROUTER_API_KEY", ""))
+    if not key or key == "your_api_key_here":
         raise ValueError(
-            "ANTHROPIC_API_KEY not set. Please add your key to the .env file."
+            "OpenRouter API key not set. Enter it in the app, or add "
+            "OPENROUTER_API_KEY to your .env file."
         )
-    return anthropic.Anthropic(api_key=api_key)
+    if not key.startswith("sk-or-"):
+        raise ValueError(
+            f"That does not look like an OpenRouter key (it starts with "
+            f"'{key[:8]}...'). OpenRouter keys begin with 'sk-or-v1-'."
+        )
+    return anthropic.Anthropic(
+        api_key=key,
+        base_url=BASE_URL,
+        default_headers={"X-Title": "DSA Dataset Generator"},
+    )
 
 
 def extract_json(raw: str) -> list:
@@ -147,8 +175,9 @@ def generate_rows(
     problem_text: str,
     function_based: bool = False,
     subtopics: list = None,
+    api_key: str = None,
 ) -> list:
-    client        = get_client()
+    client        = get_client(api_key)
     system_prompt = get_system_prompt(function_based=function_based, subtopics=subtopics or [])
     mode_label    = get_mode_label(function_based)
 
@@ -170,7 +199,7 @@ def generate_rows(
     )
 
     response = client.messages.create(
-        model="claude-sonnet-4-5-20250929",
+        model=MODEL,
         max_tokens=16000,
         temperature=0,
         system=system_prompt,

@@ -7,3 +7,5 @@ venv/
 .streamlit/
 .DS_Store
 Thumbs.db
+test_key.py
+src/test_key.py

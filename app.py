@@ -6,11 +6,13 @@ Streamlit web application entry point.
 import os
 import streamlit as st
 import traceback
+import anthropic
 
 from src.claude_client import generate_rows
 from src.xlsx_generator import rows_to_xlsx
 from src.validator import validate_rows
 from src.executor import verify_and_fix_testcases
+from src.stress_gen import inject_stress_testcases
 from src.subtopic_parser import parse_subtopics, inject_subtopics
 
 st.set_page_config(
@@ -176,7 +178,6 @@ div[data-testid="column"] .stButton > button[kind="secondary"] {
 # ── Header ────────────────────────────────────────────────────────────────────
 st.markdown("""
 <div class="app-header">
-    <div class="badge">⚡ POWERED BY CLAUDE AI</div>
     <h1>📊 DSA Question Dataset Generator</h1>
     <p>Paste raw DSA problem descriptions · Select mode · Download platform-ready <strong>.xlsx</strong></p>
 </div>
@@ -186,21 +187,19 @@ st.markdown("""
 if "solution_mode" not in st.session_state:
     st.session_state["solution_mode"] = "non_function"
 if "api_key" not in st.session_state:
-    st.session_state["api_key"] = ""
-
+    st.session_state["api_key"] = os.getenv("OPENROUTER_API_KEY", "")
 # ── API Key input ─────────────────────────────────────────────────────────────
-st.markdown('<div class="sec-label">🔑 Anthropic API Key</div>', unsafe_allow_html=True)
+st.markdown('<div class="sec-label">🔑 OpenRouter API Key</div>', unsafe_allow_html=True)
 api_key_input = st.text_input(
     label="api_key",
     label_visibility="collapsed",
-    placeholder="sk-ant-api03-...",
+    placeholder="sk-or-v1-...",
     type="password",
     value=st.session_state["api_key"],
     key="api_key_field",
 )
 if api_key_input:
     st.session_state["api_key"] = api_key_input
-    os.environ["ANTHROPIC_API_KEY"] = api_key_input
 
 st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
 
@@ -310,7 +309,7 @@ generate_btn = st.button("🚀  Generate Dataset", key="generate_btn", use_conta
 if generate_btn:
     if not st.session_state.get("api_key", "").strip():
         st.markdown(
-            '<div class="box-error">🔑 Please enter your Anthropic API key above before generating.</div>',
+            '<div class="box-error">🔑 Please enter your OpenRouter API key above before generating.</div>',
             unsafe_allow_html=True,
         )
     elif not problem_input.strip():
@@ -332,6 +331,7 @@ if generate_btn:
                     problem_input.strip(),
                     function_based=is_func,
                     subtopics=subtopics,
+                    api_key=st.session_state["api_key"],
                 )
 
                 # ── Step 2: Validate structure ────────────────────────────────
@@ -351,6 +351,22 @@ if generate_btn:
                     st.markdown(
                         f'<div class="box-info">🔧 Auto-corrected <strong>{corrections}</strong> '
                         f'testcase output(s) by running the Python solution.</div>',
+                        unsafe_allow_html=True,
+                    )
+
+                # ── Step 3b: Replace last 3 TCs with generated large cases ────
+                rows, injected, skipped_blocks = inject_stress_testcases(rows)
+                if injected:
+                    st.markdown(
+                        f'<div class="box-info">📈 Generated <strong>{injected}</strong> '
+                        f'large testcase(s) in code (no LLM).</div>',
+                        unsafe_allow_html=True,
+                    )
+                if skipped_blocks:
+                    st.markdown(
+                        f'<div class="box-warning">⚠️ {skipped_blocks} question(s) had an '
+                        f'unsupported input shape — large testcases skipped, '
+                        f'Claude\'s originals kept.</div>',
                         unsafe_allow_html=True,
                     )
 
@@ -403,6 +419,33 @@ if generate_btn:
                     use_container_width=True,
                 )
 
+            except anthropic.AuthenticationError:
+                st.markdown(
+                    '<div class="box-error">🔑 <strong>Key rejected by OpenRouter.</strong><br>'
+                    'Check that it starts with sk-or-v1- and is still active at '
+                    'openrouter.ai/keys.</div>',
+                    unsafe_allow_html=True,
+                )
+            except anthropic.NotFoundError:
+                st.markdown(
+                    '<div class="box-error">🔍 <strong>Model not found.</strong><br>'
+                    'Verify the MODEL slug in src/claude_client.py against '
+                    'openrouter.ai/models.</div>',
+                    unsafe_allow_html=True,
+                )
+            except anthropic.APIStatusError as ae:
+                if ae.status_code == 402:
+                    st.markdown(
+                        '<div class="box-error">💳 <strong>Out of credit.</strong><br>'
+                        'Top up your balance at openrouter.ai/credits.</div>',
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    st.markdown(
+                        f'<div class="box-error">❌ <strong>API error {ae.status_code}:</strong><br>'
+                        f'<pre style="margin:8px 0 0 0; font-size:0.78rem; color:#fca5a5;">{str(ae)}</pre></div>',
+                        unsafe_allow_html=True,
+                    )
             except ValueError as ve:
                 st.markdown(
                     f'<div class="box-error">❌ <strong>Error:</strong><br>'
@@ -420,6 +463,6 @@ if generate_btn:
 # ── Footer ────────────────────────────────────────────────────────────────────
 st.markdown("""
 <div class="footer">
-    DSA Dataset Generator &nbsp;·&nbsp; Streamlit + Claude API &nbsp;·&nbsp; claude-sonnet-4-5-20250929
+    DSA Dataset Generator &nbsp;·&nbsp; Streamlit + OpenRouter &nbsp;·&nbsp; anthropic/claude-sonnet-4.5
 </div>
 """, unsafe_allow_html=True)

@@ -34,6 +34,37 @@ App opens at `http://localhost:8501`
 
 ---
 
+## Pipeline
+
+```
+raw problem text
+      │
+      ▼
+generate_rows()          Claude writes the question, PY/JAVA/CPP solutions,
+                          boilerplate, and TC1-TC7
+      │
+      ▼
+validate_rows()          structural checks — blocks generation on critical errors
+      │
+      ▼
+verify_and_fix_testcases()   runs each Python solution against TC1-TC7,
+                              silently corrects any wrong expected output
+      │
+      ▼
+inject_stress_testcases()    pure code, no LLM — overwrites TC8-TC10 with
+                              large generated inputs, using the same solution
+                              to compute their expected output
+      │
+      ▼
+inject_subtopics()        (optional) maps your pasted subtopic list onto
+                          the right PYTHON rows
+      │
+      ▼
+rows_to_xlsx()            writes the final `.xlsx`
+```
+
+---
+
 ## Output Format (per question)
 
 | Row | Language | Contents |
@@ -73,17 +104,9 @@ dsa_dataset_generator/
     ├── __init__.py
     ├── system_prompt.py    ← Master prompt + mode injection
     ├── claude_client.py    ← API call + JSON extraction
+    ├── subtopic_parser.py  ← Maps free-text subtopics to problem rows
+    ├── executor.py         ← Runs solutions; auto-corrects wrong TC outputs
+    ├── stress_gen.py       ← Generates TC8-TC10 (large stress testcases)
     ├── xlsx_generator.py   ← openpyxl writer
     └── validator.py        ← Structural validation
 ```
-
----
-
-## Troubleshooting
-
-| Issue | Fix |
-|-------|-----|
-| `ANTHROPIC_API_KEY not set` | Edit `.env`, add your key |
-| `streamlit` not found | Use `python -m streamlit run app.py` |
-| JSON parse error | Re-run; rare edge case |
-| Port 8501 busy | `python -m streamlit run app.py --server.port 8502` |

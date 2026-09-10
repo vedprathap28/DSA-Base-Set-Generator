@@ -64,13 +64,17 @@ def _set_col_widths(ws) -> None:
 
 
 def _write_data_row(ws, excel_row: int, row_dict: dict) -> None:
+    max_lines = 1
     for col_idx, key in enumerate(ROW_KEYS, start=1):
         val             = row_dict.get(key, "") or ""
         cell            = ws.cell(row=excel_row, column=col_idx, value=val)
         cell.font       = DATA_FONT
         cell.alignment  = WRAP_TOP
         cell.border     = THIN_BORDER
-    ws.row_dimensions[excel_row].height = 14
+        if isinstance(val, str) and val:
+            max_lines = max(max_lines, val.count("\n") + 1)
+    # One line ~14pt tall; cap so a huge stress-test array doesn't blow up the row.
+    ws.row_dimensions[excel_row].height = min(200, max(14, max_lines * 14))
 
 
 def rows_to_xlsx(rows: list) -> bytes:

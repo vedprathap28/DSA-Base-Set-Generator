@@ -23,6 +23,8 @@ def _run_python(code: str, stdin_input: str, timeout: int = 10) -> str:
         tmp_path = f.name
 
     try:
+        env = dict(os.environ)
+        env["PYTHONHASHSEED"] = "0"   # deterministic set/dict iteration order
         result = subprocess.run(
             [sys.executable, tmp_path],
             input=stdin_input,
@@ -30,6 +32,7 @@ def _run_python(code: str, stdin_input: str, timeout: int = 10) -> str:
             text=True,
             timeout=timeout,
             encoding="utf-8",
+            env=env,
         )
         output = result.stdout.strip()
         return output if output else None
